@@ -1,6 +1,7 @@
 #include <SoftwareSerial.h>
-#define SSID "id"
-#define PASS "pass" //your wep key here
+#include "LocalDefines.h"
+#define SSID SSID_LOCAL
+#define PASS PASS_LOCAL
 
 // When debugging these need to be RX -> RX and Tx -> Tx, (USB) but when writing as the arduino it's a switch!
 SoftwareSerial espSerial(10, 11); // RX, TX
