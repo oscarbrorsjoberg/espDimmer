@@ -1,7 +1,11 @@
 #include <SoftwareSerial.h>
 #include "LocalDefines.h"
+
 #define SSID SSID_LOCAL
 #define PASS PASS_LOCAL
+#define IP IP_LOCAL
+#define HOST HOST_LOCAL
+#define PORT PORT_LOCAL
 
 // When debugging these need to be RX -> RX and Tx -> Tx, (USB) but when writing as the arduino it's a switch!
 SoftwareSerial espSerial(10, 11); // RX, TX
@@ -9,6 +13,9 @@ SoftwareSerial espSerial(10, 11); // RX, TX
 int const led = 9;
 int const debugLed = 13;
 char myChar;
+String ip_own = "";
+bool message_sent = false;
+bool cip_server_started = false;
 
 void setup()
 {
@@ -41,28 +48,28 @@ void setup()
   delay(100);
 
   //test if the module is ready
+  espSerial.println("AT+RST");
   
-  int nmbrWritten = espSerial.println("AT+RST");
-  Serial.print("Bytes written:");
-  Serial.println(nmbrWritten);
-  
-  // while (espSerial.available() == 0); //wait for data
-  espSerial.listen();
-  
-  if (espSerial.available() > 0) {
-    // read the incoming byte:
-    int incomingByte = espSerial.read();
-    // say what you got:
-    Serial.print("I received: ");
-    Serial.println(incomingByte, DEC);
-   }
-   else{
-    Serial.println("ESP not ready!");
-   }
+  int charCount = 0;
+  char c;
+  String statusStr = "";
 
-   Serial.println(espSerial.peek());
+  while (espSerial.available() == 0); // wait for data
+  while (espSerial.available())
+  {
+      c = espSerial.read();
+      statusStr += c;
+      if (espSerial.available()==0){
+        break;
+      }
+
+      charCount++;
+      delay(50); //wait for more data. fixme: can this be smaller?
+   }
+   Serial.println(statusStr);
 
   espSerial.println("AT+RST");
+
   if (espSerial.find("ready"))
   {
     Serial.println("Module is ready");
@@ -71,7 +78,7 @@ void setup()
     boolean connected = false;
     for (int i = 0; i < 5; i++)
     {
-      if (connectWiFi())
+      if (connect_wifi())
       {
         connected = true;
         break;
@@ -85,7 +92,7 @@ void setup()
 
     delay(5000);
     //set the single connection mode
-    espSerial.println("AT+CIPMUX=0");
+    espSerial.println("AT+CIPMUX=1");
   }
   else
   {
@@ -114,26 +121,49 @@ void setup()
 
 void loop()
 {
-  String cmd = "AT+GMR";
-  cmd += "\r\n\r\n";
+  if( ip_own == ""){
+    ip_own = get_own_ip();
+    ip_own.replace("/", ".");
+    Serial.println(ip_own);
+    delay(100);
+    if(ip_own == ""){
+        Serial.println("Unable to get own ip");
+        return;
+    }
+  }
 
-  espSerial.print("AT+CIPSEND=");
-  espSerial.println(cmd.length());
-  if (espSerial.find(">"))
-  {
-    // dbgSerial.print(">");
+  //if(!cip_start(IP, PORT)){
+  if(!cip_server_started){
+    cip_server_started = cip_start("1", 80);
+    if(!cip_server_started){
+        delay(100);
+        Serial.println("Unable to cip start");
+        return;
+    }
   }
-  else
-  {
-    espSerial.println("AT+CIPCLOSE");
-    Serial.println("connect timeout");
-    delay(1000);
-    return;
+
+  if(!message_sent){
+    message_sent = send_message("hello");
+    if(!message_sent){
+        delay(100);
+        Serial.println("Unable to send message");
+        return;
+    }
   }
+
+  return;
+
+
+
+  //if(!get_status(HOST)){
+  //  delay(100);
+  //  Serial.println("Unable to get status");
+  //  return;
+  //}
 
   int  charCount = 0;
   String statusStr = "";
-  espSerial.print(cmd);
+  //espSerial.print(cmd);
 
   if ( espSerial.find("status: ")) {
     char c;
@@ -164,7 +194,105 @@ void loop()
   delay(1000);
 }
 
-boolean connectWiFi()
+
+boolean cip_start(String dst_ip, int port)
+{
+    //String cmd = "AT+CIPSTART=\"TCP\",\"";
+    String cmd = "AT+CIPSERVER=";
+    cmd += dst_ip;
+    cmd += "," + String(port);
+
+
+    Serial.println(cmd);
+    espSerial.println(cmd);
+
+    delay(1000);
+    while(espSerial.available() == 0){
+        delay(100);
+    }
+
+    Serial.println(espSerial.readStringUntil("\n"));
+
+    if(espSerial.find("Error")){
+        Serial.println("\"" + cmd + "\"");
+        Serial.println("Yielded Error!");
+        return false;
+    }
+    Serial.println(espSerial.readStringUntil("\n"));
+
+    return true;
+}
+
+String get_own_ip()
+{
+    espSerial.println("AT+CIFSR");
+    while(espSerial.available() == 0);
+    delay(1000);
+    int count = 0;
+    while(espSerial.available() > 0 ){
+       String query = espSerial.readStringUntil("\n");
+       Serial.println(query);
+       if(query.startsWith("CIFSR:STAIP")){
+            String out = query.substring(12);
+            Serial.println("out: " + out);
+            return out;
+       }
+       Serial.println(count++);
+    }
+    return "";
+}
+
+boolean send_message(String message)
+{
+    espSerial.print("AT+CIPSEND=0,");
+    espSerial.println(message.length());
+    espSerial.println(message);
+
+    //delay(1000);
+    while(espSerial.available() == 0){
+        delay(100);
+    }
+
+    if(!espSerial.find("OK")){
+      Serial.println("Unable to send " + message);
+      espSerial.println("AT+CIPCLOSE=0");
+      return false;
+    }
+    Serial.println("Sent!");
+    espSerial.println("AT+CIPCLOSE=0");
+    return true;
+
+}
+
+boolean get_status(String host)
+{
+  //String cmd = "GET /status HTTP/1.0\r\nHost: ";
+  //cmd += host;
+  //cmd += "\r\n\r\n";
+
+  String cmd = "hello";
+  espSerial.print("AT+CIPSEND=0,");
+  espSerial.println(cmd.length());
+  if(!espSerial.find(">")){
+    Serial.println(espSerial.readStringUntil("\r\n"));
+    Serial.println("Connection Timeout!");
+    espSerial.println("AT+CIPCLOSE");
+    delay(1000);
+    return false;
+  }
+  espSerial.println(cmd);
+
+  if(!espSerial.find("OK")){
+    Serial.println("Unable to send " + cmd);
+    return false;
+  }
+  Serial.println("Sent!");
+
+  espSerial.println("AT+CIPCLOSE=0");
+  return true;
+}
+
+boolean connect_wifi()
 {
   espSerial.println("AT+CWMODE=1");
   String cmd = "AT+CWJAP=\"";
@@ -182,7 +310,7 @@ boolean connectWiFi()
   }
   else
   {
-    Serial.println("Can not connect to the WiFi.");
-    return false;
+      Serial.println("Can not connect to the WiFi.");
+      return false;
   }
 }
