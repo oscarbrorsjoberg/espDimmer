@@ -1,5 +1,6 @@
 #include <SoftwareSerial.h>
 #include "LocalDefines.h"
+#include <Arduino.h>
 
 #define SSID SSID_LOCAL
 #define PASS PASS_LOCAL
@@ -16,6 +17,29 @@ char myChar;
 String ip_own = "";
 bool message_sent = false;
 bool cip_server_started = false;
+
+unsigned long start_time = millis();
+unsigned long timeout = 3000;
+
+
+String read_message(){
+    unsigned long message_start = millis();
+    while(!espSerial.available()){
+        if((millis() - message_start) > timeout){
+            Serial.println("Timeout waiting for response!");
+            break;
+        }
+    }
+    Serial.println("Message available!");
+    String out = "";
+
+    if(espSerial.available()){
+        out = espSerial.readString();
+    }
+
+
+    return out;
+}
 
 void setup()
 {
@@ -36,7 +60,7 @@ void setup()
 
   // Open serial communications and wait for port to open:
   espSerial.begin(115200);
-  espSerial.setTimeout(2000);
+  espSerial.setTimeout(4000);
   espSerial.listen();
 
   if(espSerial.isListening()){
@@ -49,73 +73,47 @@ void setup()
 
   //test if the module is ready
   espSerial.println("AT+RST");
+
+  String status_rst = read_message();
+  if(status_rst == ""){
+    Serial.println("No message recieved after RST");
+    // die
+    while(1);
+  }
+
+  Serial.println("==== Message start ======");
+  Serial.println(status_rst);
+  Serial.println("==== Message end ======");
   
-  int charCount = 0;
-  char c;
-  String statusStr = "";
-
-  while (espSerial.available() == 0); // wait for data
-  while (espSerial.available())
-  {
-      c = espSerial.read();
-      statusStr += c;
-      if (espSerial.available()==0){
-        break;
-      }
-
-      charCount++;
-      delay(50); //wait for more data. fixme: can this be smaller?
-   }
-   Serial.println(statusStr);
-
-  espSerial.println("AT+RST");
-
-  if (espSerial.find("ready"))
+  if (status_rst.indexOf("ready") > -1)
   {
     Serial.println("Module is ready");
     delay(1000);
+
     //connect to the wifi
     boolean connected = false;
-    for (int i = 0; i < 5; i++)
-    {
-      if (connect_wifi())
-      {
-        connected = true;
-        break;
-      }
+    int retries = 10;
+
+    while(!connected & (retries > 0)){
+        connected = connect_wifi();
+        retries--;
     }
+
     if (!connected)
     {
       //die
       while (1);
     }
 
-    delay(5000);
     //set the single connection mode
+    Serial.println("Connected!");
     espSerial.println("AT+CIPMUX=1");
   }
   else
   {
-    Serial.println("Module didn't respond.");
-    delay(100);
-
-    //serial loop mode for diag
-    while (1) {
-      while (Serial.available()) {
-        myChar = Serial.read();
-        espSerial.print(myChar);
-        digitalWrite(13, HIGH);
-        delay(50);
-        digitalWrite(13, LOW);
-        delay(50);
-      }
-
-      while (espSerial.available()) {
-        myChar = espSerial.read();
-        delay(25);
-        Serial.print(myChar);
-      }
-    }
+    Serial.println("Nonready after reset");
+    // die
+    while(1);
   }
 }
 
