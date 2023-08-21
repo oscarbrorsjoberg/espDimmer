@@ -1,6 +1,8 @@
 #include <SoftwareSerial.h>
-#include "LocalDefines.h"
 #include <Arduino.h>
+
+// small header containing local info
+#include "LocalDefines.h"
 
 #define SSID SSID_LOCAL
 #define PASS PASS_LOCAL
@@ -9,7 +11,10 @@
 #define PORT PORT_LOCAL
 
 // When debugging these need to be RX -> RX and Tx -> Tx, (USB) but when writing as the arduino it's a switch!
-SoftwareSerial espSerial(10, 11); // RX, TX
+// So it's better to have the dbgSerial rewired
+// I initially used this as the main line to communicate between esp and ard but there was too much noise!
+
+SoftwareSerial dbgSerial(10, 11); // RX, TX
 
 int const led = 9;
 int const debugLed = 13;
@@ -19,25 +24,35 @@ bool message_sent = false;
 bool cip_server_started = false;
 
 unsigned long start_time = millis();
-unsigned long timeout = 3000;
+unsigned long timeout = 4000;
 
+boolean DEBUG = true; 
 
-String read_message(){
+/*
+    sends message and reads result
+    "" if no message, 
+    readString cleans RX buffer so can't do anything with it after
+*/
+String read_message(String message){
+
+    if(DEBUG) dbgSerial.println("Sending message " + message);
+
+    Serial.println(message);
     unsigned long message_start = millis();
-    while(!espSerial.available()){
+    while(!Serial.available()){
         if((millis() - message_start) > timeout){
-            Serial.println("Timeout waiting for response!");
+            if(DEBUG) dbgSerial.println("Timeout waiting for response!");
             break;
         }
     }
-    Serial.println("Message available!");
+
     String out = "";
+    int av = 0;
 
-    if(espSerial.available()){
-        out = espSerial.readString();
+    while(Serial.available()){
+        if(DEBUG) dbgSerial.println("RX buffer av (" + String(av++) + ")");
+        out += Serial.readStringUntil("\n");
     }
-
-
     return out;
 }
 
@@ -46,8 +61,9 @@ void setup()
   pinMode(led, OUTPUT);
   pinMode(debugLed, OUTPUT);
 
-  Serial.begin(9600);
-  Serial.setTimeout(2000);
+  dbgSerial.begin(9600);
+  dbgSerial.setTimeout(1000);
+
 
   //blink debugLed to indicate power up
   for (int i = 0; i < 15; i++)
@@ -56,119 +72,109 @@ void setup()
     delay(50);
     digitalWrite(debugLed, LOW);
     delay(50);
-  }
+   }
 
   // Open serial communications and wait for port to open:
-  espSerial.begin(115200);
-  espSerial.setTimeout(4000);
-  espSerial.listen();
+  Serial.begin(115200);
+  Serial.setTimeout(4000);
 
-  if(espSerial.isListening()){
-    Serial.println("Is listening!");
-  }
-
-
-  Serial.println("ESP8266 Demo");
+  dbgSerial.println(" -- ESP8266 Demo -- ");
   delay(100);
 
   //test if the module is ready
-  espSerial.println("AT+RST");
+  Serial.println("AT+RST");
 
-  String status_rst = read_message();
-  if(status_rst == ""){
-    Serial.println("No message recieved after RST");
-    // die
-    while(1);
-  }
-
-  Serial.println("==== Message start ======");
-  Serial.println(status_rst);
-  Serial.println("==== Message end ======");
-  
-  if (status_rst.indexOf("ready") > -1)
+  if (Serial.find("ready"))
   {
-    Serial.println("Module is ready");
+    dbgSerial.println("Module is ready");
     delay(1000);
 
     //connect to the wifi
     boolean connected = false;
     int retries = 10;
 
-    while(!connected & (retries > 0)){
+    while(!connected & (retries-- > 0))
         connected = connect_wifi();
-        retries--;
-    }
-
     if (!connected)
     {
       //die
-      while (1);
+      while (1){
+        digitalWrite(debugLed, HIGH);
+        delay(100);
+        digitalWrite(debugLed, LOW);
+        delay(100);
+
+      }
     }
 
-    //set the single connection mode
-    Serial.println("Connected!");
-    espSerial.println("AT+CIPMUX=1");
+    // set the single connection mode
+    dbgSerial.println("Connected!");
+    String cpmux_mes = read_message("AT+CIPMUX=1");
+
+    if(cpmux_mes == ""){
+        dbgSerial.println("Unable to get status after CIPMUX");
+    }
+    else{
+        dbgSerial.println("=== message start ===");
+        dbgSerial.println(cpmux_mes.trim());
+        dbgSerial.println("=== message end ===");
+    }
   }
   else
   {
-    Serial.println("Nonready after reset");
-    // die
-    while(1);
+      dbgSerial.println("Non-ready after reset");
+      // die
+      while(1){
+          digitalWrite(debugLed, HIGH);
+          delay(100);
+          digitalWrite(debugLed, LOW);
+          delay(100);
+    }
   }
 }
 
 void loop()
 {
+
   if( ip_own == ""){
     ip_own = get_own_ip();
-    ip_own.replace("/", ".");
-    Serial.println(ip_own);
-    delay(100);
+    dbgSerial.println(ip_own);
     if(ip_own == ""){
-        Serial.println("Unable to get own ip");
+        dbgSerial.println("Unable to get own ip");
         return;
     }
   }
 
-  //if(!cip_start(IP, PORT)){
   if(!cip_server_started){
-    cip_server_started = cip_start("1", 80);
+    cip_server_started = cip_start(1, 80);
     if(!cip_server_started){
         delay(100);
-        Serial.println("Unable to cip start");
+        dbgSerial.println("Unable to cip start");
         return;
     }
+    dbgSerial.println("Server started at " + ip_own);
   }
 
   if(!message_sent){
     message_sent = send_message("hello");
     if(!message_sent){
         delay(100);
-        Serial.println("Unable to send message");
+        dbgSerial.println("Unable to send message");
         return;
     }
   }
 
   return;
 
-
-
-  //if(!get_status(HOST)){
-  //  delay(100);
-  //  Serial.println("Unable to get status");
-  //  return;
-  //}
-
   int  charCount = 0;
   String statusStr = "";
-  //espSerial.print(cmd);
 
-  if ( espSerial.find("status: ")) {
+  if ( Serial.find("status: ")) {
     char c;
-    while (espSerial.available() == 0); //wait for data
-    while (espSerial.available())
+    while (Serial.available() == 0); //wait for data
+    while (Serial.available())
     {
-      c = espSerial.read();
+      c = Serial.read();
       if (charCount < 3)
         statusStr += c;
       else if (charCount > 99) //avoid reading noise forever just in case
@@ -183,81 +189,101 @@ void loop()
       //Adjust the LED brightness
       analogWrite(led, statusStr.toInt() );
 
-      Serial.print("status=");
-      Serial.println(statusStr);
+      dbgSerial.print("status=");
+      dbgSerial.println(statusStr);
     }
   }
   Serial.println();
-  Serial.println("====");
+  dbgSerial.println("====");
   delay(1000);
 }
 
-
-boolean cip_start(String dst_ip, int port)
+/*
+Open server mode (0 - closed, 1 - open) at port 
+*/
+boolean cip_start(int server_mode, int port)
 {
     //String cmd = "AT+CIPSTART=\"TCP\",\"";
     String cmd = "AT+CIPSERVER=";
-    cmd += dst_ip;
+    cmd += String(dst_ip);
     cmd += "," + String(port);
 
 
+    dbgSerial.println(cmd);
     Serial.println(cmd);
-    espSerial.println(cmd);
+    while(Serial.available() == 0);
 
-    delay(1000);
-    while(espSerial.available() == 0){
-        delay(100);
-    }
-
-    Serial.println(espSerial.readStringUntil("\n"));
-
-    if(espSerial.find("Error")){
-        Serial.println("\"" + cmd + "\"");
-        Serial.println("Yielded Error!");
+    // this cleans the rx buffer?
+    if(Serial.find("Error")){
+        dbgSerial.println("\"" + cmd + "\"");
+        dbgSerial.println("Yielded Error!");
         return false;
     }
-    Serial.println(espSerial.readStringUntil("\n"));
 
     return true;
 }
 
 String get_own_ip()
 {
-    espSerial.println("AT+CIFSR");
-    while(espSerial.available() == 0);
+    Serial.println("AT+CIFSR");
+    while(Serial.available() == 0);
     delay(1000);
     int count = 0;
-    while(espSerial.available() > 0 ){
-       String query = espSerial.readStringUntil("\n");
-       Serial.println(query);
+    while(Serial.available() > 0 ){
+       String query = Serial.readStringUntil("\n");
+       dbgSerial.println(query);
        if(query.startsWith("CIFSR:STAIP")){
             String out = query.substring(12);
-            Serial.println("out: " + out);
+            dbgSerial.println("out: " + out);
             return out;
        }
-       Serial.println(count++);
+       dbgSerial.println(count++);
     }
     return "";
 }
 
 boolean send_message(String message)
 {
-    espSerial.print("AT+CIPSEND=0,");
-    espSerial.println(message.length());
-    espSerial.println(message);
+    dbgSerial.println("AT+CIPSEND=0," + String(message.length()));
+    Serial.println("AT+CIPSEND=0," + String(message.length()));
 
-    //delay(1000);
-    while(espSerial.available() == 0){
-        delay(100);
+    if (Serial.find(">"))
+    {
+        dbgSerial.print(">");
+    }
+    else
+    {
+        Serial.println("AT+CIPCLOSE");
+        dbgSerial.println("connect timeout");
+        delay(1000);
+        return false;
     }
 
-    if(!espSerial.find("OK")){
-      Serial.println("Unable to send " + message);
-      espSerial.println("AT+CIPCLOSE=0");
+    Serial.println(message);
+
+    unsigned long message_start = millis();
+    while(!Serial.available()){
+        if((millis() - message_start) > timeout){
+            dbgSerial.println("Timeout waiting for response!");
+            break;
+        }
+    }
+
+    if(!Serial.available()){
+       dbgSerial.println("Serial not avab");
+       Serial.println("AT+CIPCLOSE=0");
+       return false;
+    }
+
+    if(!Serial.find("OK")){
+      dbgSerial.println("Did not find ok");
+      dbgSerial.println(Serial.readString());
+      Serial.println("AT+CIPCLOSE=0");
       return false;
     }
-    Serial.println("Sent!");
-    espSerial.println("AT+CIPCLOSE=0");
+
+    dbgSerial.println("Sent!");
+    Serial.println("AT+CIPCLOSE=0");
     return true;
 
 }
@@ -269,46 +295,58 @@ boolean get_status(String host)
   //cmd += "\r\n\r\n";
 
   String cmd = "hello";
-  espSerial.print("AT+CIPSEND=0,");
-  espSerial.println(cmd.length());
-  if(!espSerial.find(">")){
-    Serial.println(espSerial.readStringUntil("\r\n"));
-    Serial.println("Connection Timeout!");
-    espSerial.println("AT+CIPCLOSE");
+  Serial.print("AT+CIPSEND=0,");
+  Serial.println(cmd.length());
+  if(!Serial.find(">")){
+    dbgSerial.println(Serial.readStringUntil("\r\n"));
+    dbgSerial.println("Connection Timeout!");
+    Serial.println("AT+CIPCLOSE=0");
     delay(1000);
     return false;
   }
-  espSerial.println(cmd);
 
-  if(!espSerial.find("OK")){
-    Serial.println("Unable to send " + cmd);
+  Serial.println(cmd);
+  if(!Serial.find("OK")){
+    dbgSerial.println("Unable to send " + cmd);
+    Serial.println("AT+CIPCLOSE=0");
     return false;
   }
-  Serial.println("Sent!");
+  dbgSerial.println("Sent!");
 
-  espSerial.println("AT+CIPCLOSE=0");
+  Serial.println("AT+CIPCLOSE=0");
   return true;
 }
 
 boolean connect_wifi()
 {
-  espSerial.println("AT+CWMODE=1");
+  String cwmode_stat = read_message("AT+CWMODE=1");
+
+  if(cwmode_stat == ""){
+    dbgSerial.println("Unable to set CWMODE!");
+    return false;
+  }
+  else{
+      dbgSerial.println("=== message start ===");
+      dbgSerial.println(cwmode_stat.trim());
+      dbgSerial.println("=== message end ===");
+  }
+
   String cmd = "AT+CWJAP=\"";
   cmd += SSID;
   cmd += "\",\"";
   cmd += PASS;
   cmd += "\"";
+  dbgSerial.println(cmd);
   Serial.println(cmd);
-  espSerial.println(cmd);
   delay(2000);
-  if (espSerial.find("OK"))
+  if (Serial.find("OK"))
   {
-    Serial.println("OK, Connected to WiFi.");
+    dbgSerial.println("OK, Connected to WiFi.");
     return true;
   }
   else
   {
-      Serial.println("Can not connect to the WiFi.");
+      dbgSerial.println("Can not connect to the WiFi.");
       return false;
   }
 }
