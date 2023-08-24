@@ -1,10 +1,17 @@
  <!DOCTYPE html>
 <html>
   <head>
-    <title></title>
+    {% if title %}
+    <title>Flask App - {{title}}</title>
+    {% else %}
+    <title>Flask App</title>
+    {% endif %}
   </head>
   <body>
-    <h1>Home Page</h1>
-    
+    <h1>Simple Frontend</h1>
+    <input type="range" id="dataSlider" min="0" max="255" value="50">
+    <p>Value: <span id="sliderValue">50</span</p>
+    <script type="text/javascript" src="js/slider.js">
+    </script>
   </body>
 </html>
