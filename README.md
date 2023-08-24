@@ -45,9 +45,11 @@ ESP01 can connect to an AP. Other devices on this AP can communicate with module
 3. Both
 
 
-
 # The application
 
 ## The web app
 
-## What is the sketch.json
+So we're going with a simple flask backend.
+
+## Stuff about flask 
+
