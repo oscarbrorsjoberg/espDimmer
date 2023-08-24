@@ -1,7 +1,6 @@
-from flask import Flask, jsonify, request
-import math
+from flask import Flask, jsonify, request, render_template, url_for
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path="/static")
 
 intensity: int = 0
 MAX_INTENSITY = 255
@@ -20,7 +19,8 @@ def get_status():
         except Exception as e:
             response = {"message": f"Got error {e}"}
         else:
-            if(isinstance(_intens, int)):
+            print(_intens)
+            if(isinstance(_intens, int) or isinstance(_intens, float)):
                 intensity = min(MAX_INTENSITY, _intens)
                 response = {"message": f"Intensity is {intensity}"}
             else:
@@ -32,7 +32,7 @@ def get_status():
 @app.route("/")
 @app.route("/home")
 def home():
-    return render_template('home.html')
+    return render_template('home.html', title='light intensity')
 
 if __name__ == '__main__':
     app.run(debug=True)

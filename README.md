@@ -53,3 +53,10 @@ So we're going with a simple flask backend.
 
 ## Stuff about flask 
 
+## Question 
+
+Content-Type application/json, what does that mean and can one use other
+content-types?
+
+
+
