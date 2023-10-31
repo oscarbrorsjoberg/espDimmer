@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Remove stuff from pin 0 and 1!!\n"
+echo "Remove stuff from pin zero and pin one !!\n"
 arduino-cli compile -b arduino:avr:uno
 arduino-cli upload -b arduino:avr:uno -p /dev/ttyACM0 -v
 

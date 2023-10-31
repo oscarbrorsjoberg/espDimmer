@@ -18,7 +18,6 @@ SoftwareSerial dbgSerial(10, 11); // RX, TX
 
 int const led = 9;
 int const debugLed = 13;
-char myChar;
 String ip_own = "";
 bool message_sent = false;
 bool cip_server_started = false;
